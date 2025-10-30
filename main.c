@@ -5,16 +5,9 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <termios.h>
-#include "crc16.h"
 
-#define BAUDRATE B115200
-#define DEVICE "/dev/ttyACM0"
+#include "sequencer.h"
 
-#define FAIL_OPEN -1
-
-struct termios oldtio, currenttio;
 
 static void signalHandler(int signo)
 {
@@ -26,52 +19,6 @@ static void signalHandler(int signo)
 	default:
 		break;
 	}
-}
-
-int connectToDevice(void)
-{
-	int fd;
-
-	fd = open(DEVICE, O_RDWR | O_NOCTTY);
-	if (fd < 0)
-	{
-		return FAIL_OPEN;
-	}
-
-	tcgetattr(fd, &oldtio);
-
-	bzero(&currenttio, sizeof(currenttio));
-	currenttio.c_cflag = BAUDRATE;
-	currenttio.c_iflag = IGNPAR | ICRNL;
-	currenttio.c_oflag = 0;
-	currenttio.c_lflag = ICANON;
-	tcflush(fd, TCIFLUSH);
-	tcsetattr(fd, TCSANOW, &currenttio);
-	return fd;
-}
-
-size_t getPacket(char *command, char *packetbuf)
-{
-	unsigned short crc;
-
-	crc = crc16(command, strlen(command));
-	return sprintf(packetbuf, "@%s:%04X\r\n", command, crc);
-}
-
-size_t writeToDevice(int fd, const char *command)
-{
-	return write(fd, command, strlen(command));
-}
-
-int readFromDevice(int fd, char *buffer, size_t bufferSize)
-{
-	return read(fd, buffer, bufferSize);
-}
-
-int disconnectFromDevice(int fd)
-{
-	tcsetattr(fd, TCSANOW, &oldtio);
-	close(fd);
 }
 
 int devicefd;
@@ -97,19 +44,9 @@ int main(void)
 	}
 	printf("Connected\r\n");
 
-	npacket = getPacket("STATUS", buf);
-	if (npacket > 0) {
-		if (writeToDevice(devicefd, buf) < 0)
-		{
-			printf("Write to device failed\r\n");
-		}
-	}
-	else
-	{
-		printf("Failed to get packet");
-	}
+	sendMessage(devicefd, "STATUS");
 
-	nread = readFromDevice(devicefd, buf, sizeof(buf));
+	nread = receiveMessage(devicefd, buf, sizeof(buf));
 	if (nread < 0)
 	{
 		printf("Read from device failed\r\n");
@@ -117,10 +54,7 @@ int main(void)
 	else
 	{
 		buf[nread] = 0;
-		printf(buf);
-		printf("\r\n");
 	}
-
 
 	//while(1) {
 	//	sleep(1);
